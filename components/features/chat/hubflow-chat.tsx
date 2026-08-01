@@ -7,6 +7,7 @@ import {
   CircleUserRound,
   History,
   Menu,
+  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
@@ -79,7 +80,7 @@ function ExpandedSidebar() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
-        <BrandLockup height={34} />
+        <BrandLockup height={42} />
       </div>
       <div className="flex items-center gap-1.5 px-5 pb-5 text-xs font-medium text-emerald-400">
         <StatusDot />
@@ -110,8 +111,9 @@ function ExpandedSidebar() {
             >
               <button
                 type="button"
-                className="flex-1 truncate rounded-lg px-3 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50"
+                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50"
               >
+                <MessageSquare className="size-3.5 shrink-0 opacity-60" />
                 <span className="truncate">{title}</span>
               </button>
               <button

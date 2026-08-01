@@ -1,0 +1,10 @@
+# Supabase local project config. Run `npx supabase link --project-ref <ref>`
+# once to bind this folder to your remote project, then `npx supabase db push`
+# to apply migrations in supabase/migrations/ against it.
+project_id = "hubflow"
+
+[db]
+# Local dev port; irrelevant for remote push, kept as CLI default.
+port = 54322
+shadow_port = 54320
+major_version = 15
