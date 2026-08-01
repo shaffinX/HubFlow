@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import Image from "next/image"
 import {
   Bell,
   CircleUserRound,
   History,
+  Loader2,
   Menu,
   MessageSquare,
   PanelLeftClose,
@@ -20,17 +21,27 @@ import {
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+
+interface Chat {
+  id: string
+  name: string
+  credential_id: string | null
+  created_at: string
+  updated_at: string
+}
 
 const GREETING =
   "Hello! I'm your HubFlow agent. I can help you automate your HubSpot tasks, like updating deals, syncing contacts, or generating reports. What can I do for you today?"
-
-const CHAT_HISTORY = [
-  "Update Q4 Pipeline",
-  "Lead Sync July 12",
-  "Weekly Sales Report",
-  "New Deal Automation",
-  "Contact List Cleanup",
-]
 
 const HUBFLOW_LOCKUP_VIEWBOX = 1024
 const HUBFLOW_LOCKUP_CONTENT = { minX: 44.6, minY: 354.2, width: 948.9, height: 315.5 }
@@ -76,7 +87,27 @@ function StatusDot() {
   )
 }
 
-function ExpandedSidebar() {
+interface ExpandedSidebarProps {
+  chats: Chat[]
+  selectedChatId: string | null
+  isLoading: boolean
+  error: string | null
+  deletingId: string | null
+  onSelectChat: (id: string) => void
+  onDeleteChat: (id: string) => void
+  onNewChat: () => void
+}
+
+function ExpandedSidebar({
+  chats,
+  selectedChatId,
+  isLoading,
+  error,
+  deletingId,
+  onSelectChat,
+  onDeleteChat,
+  onNewChat,
+}: ExpandedSidebarProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
@@ -91,6 +122,7 @@ function ExpandedSidebar() {
         <p className="px-1 pb-2 text-[11px] font-semibold tracking-wider text-white/40 uppercase">Menu</p>
         <button
           type="button"
+          onClick={onNewChat}
           className="flex w-full items-center gap-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-950/40 outline-none transition-all hover:brightness-110 focus-visible:ring-2 focus-visible:ring-violet-300/60 active:scale-[0.98]"
         >
           <SquarePen className="size-4 shrink-0" />
@@ -100,31 +132,61 @@ function ExpandedSidebar() {
 
       <div className="mt-6 min-h-0 flex-1 overflow-y-auto px-4 no-scrollbar">
         <p className="px-1 pb-2 text-[11px] font-semibold tracking-wider text-white/40 uppercase">Chat History</p>
+
+        {isLoading && chats.length === 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 text-[13px] text-white/40">
+            <Loader2 className="size-3.5 animate-spin" />
+            Loading…
+          </div>
+        )}
+
+        {!isLoading && error && (
+          <p className="px-3 py-2 text-[12px] text-red-400/80">{error}</p>
+        )}
+
+        {!isLoading && !error && chats.length === 0 && (
+          <p className="px-3 py-2 text-[12px] text-white/40">No chats yet. Start one above.</p>
+        )}
+
         <div className="flex flex-col gap-0.5">
-          {CHAT_HISTORY.map((title, i) => (
-            <div
-              key={title}
-              className={cn(
-                "group relative flex w-full items-center rounded-lg text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white",
-                i === 0 && "bg-white/[0.06] text-white"
-              )}
-            >
-              <button
-                type="button"
-                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50"
+          {chats.map((chat) => {
+            const isActive = chat.id === selectedChatId
+            const isDeleting = chat.id === deletingId
+            return (
+              <div
+                key={chat.id}
+                className={cn(
+                  "group relative flex w-full items-center rounded-lg text-white/70 transition-colors",
+                  isActive
+                    ? "bg-violet-500/15 text-white ring-1 ring-inset ring-violet-400/30"
+                    : "hover:bg-white/[0.06] hover:text-white",
+                  isDeleting && "pointer-events-none opacity-50",
+                )}
               >
-                <MessageSquare className="size-3.5 shrink-0 opacity-60" />
-                <span className="truncate">{title}</span>
-              </button>
-              <button
-                type="button"
-                aria-label={`Delete ${title}`}
-                className="mr-1 flex size-6 shrink-0 items-center justify-center rounded-md text-white/40 opacity-0 outline-none transition-all hover:bg-white/10 hover:text-red-400 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400/40"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
-            </div>
-          ))}
+                <button
+                  type="button"
+                  onClick={() => onSelectChat(chat.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50"
+                >
+                  <MessageSquare
+                    className={cn("size-3.5 shrink-0", isActive ? "text-violet-300" : "opacity-60")}
+                  />
+                  <span className="truncate">{chat.name}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete ${chat.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDeleteChat(chat.id)
+                  }}
+                  className="mr-1 flex size-6 shrink-0 items-center justify-center rounded-md text-white/40 opacity-0 outline-none transition-all hover:bg-white/10 hover:text-red-400 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400/40"
+                >
+                  {isDeleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                </button>
+              </div>
+            )
+          })}
         </div>
       </div>
 
@@ -141,7 +203,7 @@ function ExpandedSidebar() {
   )
 }
 
-function CollapsedSidebar({ onExpand }: { onExpand: () => void }) {
+function CollapsedSidebar({ onExpand, onNewChat }: { onExpand: () => void; onNewChat: () => void }) {
   return (
     <div className="flex h-full min-h-0 flex-col items-center px-2 py-5">
       <BrandMark size={36} />
@@ -157,6 +219,7 @@ function CollapsedSidebar({ onExpand }: { onExpand: () => void }) {
 
       <button
         type="button"
+        onClick={onNewChat}
         aria-label="New Chat"
         className="mt-2 flex size-11 items-center justify-center rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-950/40 outline-none transition-all hover:brightness-110 focus-visible:ring-2 focus-visible:ring-violet-300/60 active:scale-[0.98]"
       >
@@ -165,6 +228,7 @@ function CollapsedSidebar({ onExpand }: { onExpand: () => void }) {
 
       <button
         type="button"
+        onClick={onExpand}
         aria-label="Chat History"
         className="mt-2 flex size-9 items-center justify-center rounded-lg text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
       >
@@ -201,6 +265,41 @@ export default function HubFlowChat() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
 
+  const [chats, setChats] = useState<Chat[]>([])
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [isLoadingChats, setIsLoadingChats] = useState(true)
+  const [chatsError, setChatsError] = useState<string | null>(null)
+
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [newChatName, setNewChatName] = useState("")
+  const [isCreating, setIsCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Load chat list on mount. Setup-only effect (external -> React); the loading
+    // flag defaults to true so we don't call setState synchronously in here.
+    const controller = new AbortController()
+    ;(async () => {
+      try {
+        const res = await fetch("/api/chats", { cache: "no-store", signal: controller.signal })
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as { error?: string }
+          throw new Error(err.error || `Failed to load chats (${res.status})`)
+        }
+        const data = (await res.json()) as { chats: Chat[] }
+        setChats(data.chats)
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return
+        setChatsError((err as Error).message)
+      } finally {
+        setIsLoadingChats(false)
+      }
+    })()
+    return () => controller.abort()
+  }, [])
+
   useEffect(() => {
     if (!mobileDrawerOpen) return
     const previousOverflow = document.body.style.overflow
@@ -219,8 +318,76 @@ export default function HubFlowChat() {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [mobileDrawerOpen])
 
+  function openCreateDialog() {
+    setCreateError(null)
+    setNewChatName("")
+    setCreateDialogOpen(true)
+  }
+
+  async function handleCreateChat(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const name = newChatName.trim()
+    if (!name) return
+    setIsCreating(true)
+    setCreateError(null)
+    try {
+      const res = await fetch("/api/chats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(err.error || `Failed to create chat (${res.status})`)
+      }
+      const data = (await res.json()) as { chat: Chat }
+      setChats((prev) => [data.chat, ...prev.filter((c) => c.id !== data.chat.id)])
+      setSelectedChatId(data.chat.id)
+      setCreateDialogOpen(false)
+      setNewChatName("")
+      setMobileDrawerOpen(false)
+    } catch (err) {
+      setCreateError((err as Error).message)
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  async function handleDeleteChat(id: string) {
+    setDeletingId(id)
+    try {
+      const res = await fetch(`/api/chats/${id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(err.error || `Failed to delete chat (${res.status})`)
+      }
+      setChats((prev) => prev.filter((c) => c.id !== id))
+      setSelectedChatId((current) => (current === id ? null : current))
+    } catch (err) {
+      setChatsError((err as Error).message)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  function handleSelectChat(id: string) {
+    setSelectedChatId(id)
+    setMobileDrawerOpen(false)
+  }
+
+  const sidebarProps: ExpandedSidebarProps = {
+    chats,
+    selectedChatId,
+    isLoading: isLoadingChats,
+    error: chatsError,
+    deletingId,
+    onSelectChat: handleSelectChat,
+    onDeleteChat: handleDeleteChat,
+    onNewChat: openCreateDialog,
+  }
+
   return (
-    <div className="dark relative flex h-dvh min-h-0 w-full flex-1 overflow-hidden bg-[#07070d] text-zinc-100">
+    <div className="relative flex h-dvh min-h-0 w-full flex-1 overflow-hidden bg-[#07070d] text-zinc-100">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
         <div className="animate-hubflow-glow absolute -top-40 -left-40 size-[28rem] rounded-full bg-violet-600/20 blur-3xl" />
         <div
@@ -237,14 +404,17 @@ export default function HubFlowChat() {
       <aside
         className={cn(
           "relative z-20 hidden shrink-0 flex-col border-r border-white/5 bg-white/[0.02] transition-all duration-300 ease-in-out md:flex",
-          sidebarCollapsed ? "md:w-[72px]" : "md:w-72"
+          sidebarCollapsed ? "md:w-[72px]" : "md:w-72",
         )}
       >
         {!sidebarCollapsed && <CollapseToggle onClick={() => setSidebarCollapsed(true)} />}
         {sidebarCollapsed ? (
-          <CollapsedSidebar onExpand={() => setSidebarCollapsed(false)} />
+          <CollapsedSidebar
+            onExpand={() => setSidebarCollapsed(false)}
+            onNewChat={openCreateDialog}
+          />
         ) : (
-          <ExpandedSidebar />
+          <ExpandedSidebar {...sidebarProps} />
         )}
       </aside>
 
@@ -254,7 +424,7 @@ export default function HubFlowChat() {
         onClick={() => setMobileDrawerOpen(false)}
         className={cn(
           "fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 md:hidden",
-          mobileDrawerOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+          mobileDrawerOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
         )}
       />
       <aside
@@ -264,7 +434,7 @@ export default function HubFlowChat() {
         aria-hidden={!mobileDrawerOpen}
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex w-[85%] max-w-72 flex-col border-r border-white/10 bg-[#0b0b13] shadow-2xl transition-transform duration-300 ease-in-out md:hidden",
-          mobileDrawerOpen ? "translate-x-0" : "pointer-events-none -translate-x-full"
+          mobileDrawerOpen ? "translate-x-0" : "pointer-events-none -translate-x-full",
         )}
       >
         <button
@@ -275,7 +445,7 @@ export default function HubFlowChat() {
         >
           <X className="size-4" />
         </button>
-        <ExpandedSidebar />
+        <ExpandedSidebar {...sidebarProps} />
       </aside>
 
       {/* Main panel */}
@@ -317,7 +487,7 @@ export default function HubFlowChat() {
           </div>
         </header>
 
-        {/* Scrolling message area */}
+        {/* Scrolling message area (static greeting for now) */}
         <div className="relative min-h-0 flex-1">
           <div className="no-scrollbar absolute inset-0 overflow-x-hidden overflow-y-auto px-4 pt-6 pb-40 sm:px-8">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -369,6 +539,69 @@ export default function HubFlowChat() {
           </div>
         </div>
       </div>
+
+      {/* New Chat dialog */}
+      <Dialog
+        open={createDialogOpen}
+        onOpenChange={(next) => {
+          setCreateDialogOpen(next)
+          if (!next) {
+            setCreateError(null)
+          }
+        }}
+      >
+        <DialogContent className="border border-white/10 bg-[#0d0d16] text-zinc-100 ring-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-white">New Chat</DialogTitle>
+            <DialogDescription className="text-white/60">
+              Give this conversation a short, memorable name.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreateChat} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="chat-name" className="text-white/80">
+                Chat name
+              </Label>
+              <Input
+                id="chat-name"
+                autoFocus
+                value={newChatName}
+                onChange={(e) => setNewChatName(e.target.value)}
+                placeholder="e.g. Q4 Pipeline Review"
+                maxLength={120}
+                disabled={isCreating}
+                className="border-white/15 bg-white/5 text-white placeholder:text-white/40"
+              />
+              {createError && <p className="text-xs text-red-400">{createError}</p>}
+            </div>
+            <DialogFooter className="border-t-white/10 bg-white/[0.02]">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateDialogOpen(false)}
+                disabled={isCreating}
+                className="border-white/15 bg-transparent text-white hover:bg-white/10 hover:text-white"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!newChatName.trim() || isCreating}
+                className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-950/40 hover:brightness-110"
+              >
+                {isCreating ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Creating…
+                  </>
+                ) : (
+                  "Create"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
