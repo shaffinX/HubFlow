@@ -233,16 +233,20 @@ function CollapseToggle({ onClick }: { onClick: () => void }) {
   )
 }
 
+const CHAT_PATH_MATCH = /^\/chats\/([0-9a-f-]{36})/i
+
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const isSettingsActive = pathname?.startsWith("/settings") ?? false
+  // Selected chat comes from the URL — `/chats/<uuid>` — so navigating and
+  // active-highlight stay in sync without a separate state.
+  const selectedChatId = pathname?.match(CHAT_PATH_MATCH)?.[1] ?? null
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
 
   const [chats, setChats] = useState<Chat[]>([])
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
   const [isLoadingChats, setIsLoadingChats] = useState(true)
   const [chatsError, setChatsError] = useState<string | null>(null)
 
@@ -318,13 +322,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       const data = (await res.json()) as { chat: Chat }
       setChats((prev) => [data.chat, ...prev.filter((c) => c.id !== data.chat.id)])
-      setSelectedChatId(data.chat.id)
       setCreateDialogOpen(false)
       setNewChatName("")
       setMobileDrawerOpen(false)
-      // If the user creates a chat while on /settings, take them back to the
-      // chat surface so they can start using the new chat immediately.
-      if (isSettingsActive) router.push("/")
+      // Navigate to the newly created chat's conversation view.
+      router.push(`/chats/${data.chat.id}`)
     } catch (err) {
       setCreateError((err as Error).message)
     } finally {
@@ -341,7 +343,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         throw new Error(err.error || `Failed to delete chat (${res.status})`)
       }
       setChats((prev) => prev.filter((c) => c.id !== id))
-      setSelectedChatId((current) => (current === id ? null : current))
+      // If the deleted chat was open, bounce back to the landing page.
+      if (selectedChatId === id) router.push("/")
     } catch (err) {
       setChatsError((err as Error).message)
     } finally {
@@ -350,10 +353,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   function handleSelectChat(id: string) {
-    setSelectedChatId(id)
     setMobileDrawerOpen(false)
-    // Selecting a chat is a "return to chat surface" action.
-    if (isSettingsActive) router.push("/")
+    router.push(`/chats/${id}`)
   }
 
   const sidebarProps: ExpandedSidebarProps = {
