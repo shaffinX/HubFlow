@@ -182,6 +182,46 @@ Create a credential. Token is encrypted before being stored.
   - `400` when `label` or `token` is missing.
   - `500` on database failure (including missing/invalid `ENCRYPTION_KEY`).
 
+### `GET /api/credentials/:id`
+
+Fetch a single credential (safe view).
+
+- **Response 200**:
+  ```json
+  { "credential": { "id": "uuid", "label": "Acme HubSpot", "created_at": "…" } }
+  ```
+  The encrypted token is intentionally never returned.
+- **Errors**: `404` when not found, `500` on database failure.
+
+### `PATCH /api/credentials/:id`
+
+Rotate the stored token in place. The credential's `id` is preserved, so any
+chats already bound to it keep working — the same UUID now points at the new
+token. Used by the Settings page's **Replace token** flow.
+
+- **Request body**:
+  ```json
+  { "token": "new-raw-hubspot-token" }
+  ```
+- **Response 200**:
+  ```json
+  { "credential": { "id": "uuid", "label": "Acme HubSpot", "created_at": "…" } }
+  ```
+  The raw token is intentionally not echoed back.
+- **Errors**:
+  - `400` when `token` is missing.
+  - `404` when the credential doesn't exist.
+  - `500` on database failure (including missing/invalid `ENCRYPTION_KEY`).
+
+### `DELETE /api/credentials/:id`
+
+Remove a stored credential. Chats whose `credential_id` referenced this row
+have their `credential_id` set to `null` (via `ON DELETE SET NULL`) so the
+chat itself is preserved.
+
+- **Response 200**: `{ "ok": true }`
+- **Errors**: `500` on database failure.
+
 ---
 
 ## Audit log

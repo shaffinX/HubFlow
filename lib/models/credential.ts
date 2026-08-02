@@ -34,6 +34,18 @@ export async function getCredential(sql: Sql, id: string): Promise<Credential | 
   return row ?? null
 }
 
+export async function updateCredential(
+  sql: Sql,
+  id: string,
+  encryptedToken: string,
+): Promise<Credential | null> {
+  const [row] = await sql<Credential[]>`
+    UPDATE credentials SET encrypted_token = ${encryptedToken}
+    WHERE id = ${id} RETURNING *
+  `
+  return row ?? null
+}
+
 export async function deleteCredential(sql: Sql, id: string): Promise<void> {
   await sql`DELETE FROM credentials WHERE id = ${id}`
 }

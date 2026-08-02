@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState, type FormEvent } from "react"
-import Image from "next/image"
+import Link from "next/link"
+import { useRouter, usePathname } from "next/navigation"
+import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 import {
   Bell,
   CircleUserRound,
@@ -11,8 +12,6 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  Paperclip,
-  Send,
   Settings,
   SquarePen,
   Trash2,
@@ -32,6 +31,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+import { BrandLockup, BrandMark, StatusDot } from "./brand"
+
 interface Chat {
   id: string
   name: string
@@ -40,59 +41,13 @@ interface Chat {
   updated_at: string
 }
 
-const GREETING =
-  "Hello! I'm your HubFlow agent. I can help you automate your HubSpot tasks, like updating deals, syncing contacts, or generating reports. What can I do for you today?"
-
-const HUBFLOW_LOCKUP_VIEWBOX = 1024
-const HUBFLOW_LOCKUP_CONTENT = { minX: 44.6, minY: 354.2, width: 948.9, height: 315.5 }
-
-function BrandLockup({ height = 32, className }: { height?: number; className?: string }) {
-  const scale = height / HUBFLOW_LOCKUP_CONTENT.height
-  const width = Math.round(HUBFLOW_LOCKUP_CONTENT.width * scale)
-  const imgSize = Math.round(HUBFLOW_LOCKUP_VIEWBOX * scale)
-  const left = -Math.round(HUBFLOW_LOCKUP_CONTENT.minX * scale)
-  const top = -Math.round(HUBFLOW_LOCKUP_CONTENT.minY * scale)
-
-  return (
-    <div className={cn("relative shrink-0 overflow-hidden", className)} style={{ width, height }}>
-      <Image
-        src="/hubflow.svg"
-        alt="HubFlow"
-        width={imgSize}
-        height={imgSize}
-        style={{ position: "absolute", left, top, maxWidth: "none" }}
-        preload
-      />
-    </div>
-  )
-}
-
-function BrandMark({ size = 32, className }: { size?: number; className?: string }) {
-  return (
-    <div
-      className={cn("relative shrink-0 overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10", className)}
-      style={{ width: size, height: size }}
-    >
-      <Image src="/hubflow_a.svg" alt="HubFlow" fill sizes={`${size}px`} className="object-contain p-1" />
-    </div>
-  )
-}
-
-function StatusDot() {
-  return (
-    <span className="relative flex size-1.5 shrink-0">
-      <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-      <span className="relative inline-flex size-1.5 rounded-full bg-emerald-400" />
-    </span>
-  )
-}
-
 interface ExpandedSidebarProps {
   chats: Chat[]
   selectedChatId: string | null
   isLoading: boolean
   error: string | null
   deletingId: string | null
+  isSettingsActive: boolean
   onSelectChat: (id: string) => void
   onDeleteChat: (id: string) => void
   onNewChat: () => void
@@ -104,6 +59,7 @@ function ExpandedSidebar({
   isLoading,
   error,
   deletingId,
+  isSettingsActive,
   onSelectChat,
   onDeleteChat,
   onNewChat,
@@ -140,9 +96,7 @@ function ExpandedSidebar({
           </div>
         )}
 
-        {!isLoading && error && (
-          <p className="px-3 py-2 text-[12px] text-red-400/80">{error}</p>
-        )}
+        {!isLoading && error && <p className="px-3 py-2 text-[12px] text-red-400/80">{error}</p>}
 
         {!isLoading && !error && chats.length === 0 && (
           <p className="px-3 py-2 text-[12px] text-white/40">No chats yet. Start one above.</p>
@@ -191,19 +145,32 @@ function ExpandedSidebar({
       </div>
 
       <div className="border-t border-white/10 px-4 py-3">
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white/70 outline-none transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
+        <Link
+          href="/settings"
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/50",
+            isSettingsActive
+              ? "bg-violet-500/15 text-white ring-1 ring-inset ring-violet-400/30"
+              : "text-white/70 hover:bg-white/[0.06] hover:text-white",
+          )}
         >
-          <Settings className="size-5 shrink-0" />
+          <Settings className={cn("size-5 shrink-0", isSettingsActive && "text-violet-300")} />
           <span>Settings</span>
-        </button>
+        </Link>
       </div>
     </div>
   )
 }
 
-function CollapsedSidebar({ onExpand, onNewChat }: { onExpand: () => void; onNewChat: () => void }) {
+function CollapsedSidebar({
+  onExpand,
+  onNewChat,
+  isSettingsActive,
+}: {
+  onExpand: () => void
+  onNewChat: () => void
+  isSettingsActive: boolean
+}) {
   return (
     <div className="flex h-full min-h-0 flex-col items-center px-2 py-5">
       <BrandMark size={36} />
@@ -237,13 +204,18 @@ function CollapsedSidebar({ onExpand, onNewChat }: { onExpand: () => void; onNew
 
       <div className="flex-1" />
 
-      <button
-        type="button"
+      <Link
+        href="/settings"
         aria-label="Settings"
-        className="flex size-10 items-center justify-center rounded-lg text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
+        className={cn(
+          "flex size-10 items-center justify-center rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/50",
+          isSettingsActive
+            ? "bg-violet-500/15 text-violet-300 ring-1 ring-inset ring-violet-400/30"
+            : "text-white/60 hover:bg-white/10 hover:text-white",
+        )}
       >
         <Settings className="size-5" />
-      </button>
+      </Link>
     </div>
   )
 }
@@ -261,7 +233,11 @@ function CollapseToggle({ onClick }: { onClick: () => void }) {
   )
 }
 
-export default function HubFlowChat() {
+export function AppShell({ children }: { children: ReactNode }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const isSettingsActive = pathname?.startsWith("/settings") ?? false
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
 
@@ -346,6 +322,9 @@ export default function HubFlowChat() {
       setCreateDialogOpen(false)
       setNewChatName("")
       setMobileDrawerOpen(false)
+      // If the user creates a chat while on /settings, take them back to the
+      // chat surface so they can start using the new chat immediately.
+      if (isSettingsActive) router.push("/")
     } catch (err) {
       setCreateError((err as Error).message)
     } finally {
@@ -373,6 +352,8 @@ export default function HubFlowChat() {
   function handleSelectChat(id: string) {
     setSelectedChatId(id)
     setMobileDrawerOpen(false)
+    // Selecting a chat is a "return to chat surface" action.
+    if (isSettingsActive) router.push("/")
   }
 
   const sidebarProps: ExpandedSidebarProps = {
@@ -381,6 +362,7 @@ export default function HubFlowChat() {
     isLoading: isLoadingChats,
     error: chatsError,
     deletingId,
+    isSettingsActive,
     onSelectChat: handleSelectChat,
     onDeleteChat: handleDeleteChat,
     onNewChat: openCreateDialog,
@@ -412,6 +394,7 @@ export default function HubFlowChat() {
           <CollapsedSidebar
             onExpand={() => setSidebarCollapsed(false)}
             onNewChat={openCreateDialog}
+            isSettingsActive={isSettingsActive}
           />
         ) : (
           <ExpandedSidebar {...sidebarProps} />
@@ -487,57 +470,8 @@ export default function HubFlowChat() {
           </div>
         </header>
 
-        {/* Scrolling message area (static greeting for now) */}
-        <div className="relative min-h-0 flex-1">
-          <div className="no-scrollbar absolute inset-0 overflow-x-hidden overflow-y-auto px-4 pt-6 pb-40 sm:px-8">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-              <div className="flex max-w-[85%] gap-3 sm:max-w-[75%]">
-                <BrandMark size={32} />
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-baseline gap-1.5 px-0.5">
-                    <span className="text-sm font-semibold text-white">HubFlow</span>
-                    <span className="text-xs text-white/40">Agent</span>
-                  </div>
-                  <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-white/[0.04] px-4 py-3 text-sm leading-relaxed text-zinc-100 shadow-lg shadow-black/20">
-                    {GREETING}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Floating glass input pill — ONLY the pill blurs, no full-width overlay */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-4 sm:px-8 sm:pb-6">
-            <form
-              onSubmit={(e) => e.preventDefault()}
-              className="pointer-events-auto mx-auto flex w-full max-w-3xl items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.08] p-1.5 shadow-[0_10px_40px_rgba(0,0,0,0.5)] backdrop-blur-2xl transition-all focus-within:border-violet-400/40 focus-within:ring-2 focus-within:ring-violet-500/30"
-            >
-              <button
-                type="button"
-                aria-label="Add attachment"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
-              >
-                <Paperclip className="size-4" />
-              </button>
-              <input
-                type="text"
-                placeholder="Message HubFlow..."
-                aria-label="Message HubFlow"
-                className="min-w-0 flex-1 bg-transparent px-1 text-sm text-white placeholder:text-white/40 outline-none"
-              />
-              <button
-                type="submit"
-                aria-label="Send message"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-950/40 outline-none transition-all hover:brightness-110 focus-visible:ring-2 focus-visible:ring-violet-300/60"
-              >
-                <Send className="size-4" />
-              </button>
-            </form>
-            <p className="pointer-events-auto mx-auto mt-3 max-w-3xl text-center text-[11px] leading-relaxed text-white/35">
-              HubFlow AI can make mistakes. Consider verifying important HubSpot updates.
-            </p>
-          </div>
-        </div>
+        {/* Page content */}
+        <div className="relative min-h-0 flex-1">{children}</div>
       </div>
 
       {/* New Chat dialog */}
