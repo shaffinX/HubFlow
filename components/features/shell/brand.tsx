@@ -2,43 +2,39 @@ import Image from "next/image"
 
 import { cn } from "@/lib/utils"
 
-// Text-based brand lockup so we can position the green status dot precisely
-// after the trailing "w" of "HubFlow" — impossible with the SVG lockup because
-// the "w" glyph's edge is opaque to the layout.
+// BrandMark + wordmark + status dot rendered as one row. Everything shares the
+// same vertical centerline (items-center) so the enlarged mark sits flush with
+// the "HubFlow" title regardless of font size.
 export function BrandLockup({
-  size = "md",
+  markSize = 40,
   className,
 }: {
-  size?: "sm" | "md" | "lg"
+  markSize?: number
   className?: string
 }) {
-  const wordSize =
-    size === "lg" ? "text-3xl" : size === "sm" ? "text-lg" : "text-2xl"
   return (
-    <div className={cn("flex items-baseline gap-1.5", className)}>
-      <span className={cn("font-bold tracking-tight text-white", wordSize)}>HubFlow</span>
-      <StatusDot />
+    <div className={cn("flex items-center gap-2.5", className)}>
+      <BrandMark size={markSize} />
+      <span className="flex items-baseline gap-1.5">
+        <span className="text-xl font-bold tracking-tight text-white">HubFlow</span>
+        <StatusDot />
+      </span>
     </div>
   )
 }
 
+// Plain SVG mark — no square, no ring, no background. Consumers pass `size`
+// in pixels; padding around the glyph is baked into the SVG itself.
 export function BrandMark({ size = 32, className }: { size?: number; className?: string }) {
   return (
-    <div
-      className={cn(
-        "relative shrink-0 overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10",
-        className,
-      )}
-      style={{ width: size, height: size }}
-    >
-      <Image
-        src="/hubflow_a.svg"
-        alt="HubFlow"
-        fill
-        sizes={`${size}px`}
-        className="object-contain p-1"
-      />
-    </div>
+    <Image
+      src="/hubflow_a.svg"
+      alt="HubFlow"
+      width={size}
+      height={size}
+      className={cn("shrink-0 select-none", className)}
+      priority
+    />
   )
 }
 

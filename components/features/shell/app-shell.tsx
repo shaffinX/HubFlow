@@ -56,19 +56,17 @@ interface ExpandedSidebarProps {
   onNewChat: () => void
 }
 
-// Chat tab icon — outline MessageCircle in a subtle ring, swaps to the filled
-// tabler variant when this chat is the selected one.
+// Chat tab icon — outline MessageCircle, swaps to the filled tabler variant
+// when this chat is the selected one.
 function ChatIcon({ active }: { active?: boolean }) {
   const Icon = active ? IconMessageCircleFilled : IconMessageCircle
   return (
-    <span
+    <Icon
       className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded-full ring-1 ring-inset transition-colors",
-        active ? "bg-violet-500/25 ring-violet-300/50" : "bg-white/[0.04] ring-white/15",
+        "size-5 shrink-0",
+        active ? "text-violet-200" : "text-white/70",
       )}
-    >
-      <Icon className={cn("size-3.5", active ? "text-violet-100" : "text-white/70")} />
-    </span>
+    />
   )
 }
 
@@ -86,7 +84,7 @@ function ExpandedSidebar({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between px-5 pt-6 pb-5">
-        <BrandLockup size="lg" />
+        <BrandLockup />
       </div>
 
       <div className="px-4">

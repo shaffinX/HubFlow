@@ -12,6 +12,9 @@ interface UIMessage {
   role: "user" | "assistant"
   content: string
   status?: "pending" | "streaming" | "complete" | "error"
+  // ISO timestamp. Comes from DB on load; new messages set it to now, close
+  // enough to the DB `default now()` that a page reload doesn't shift the time.
+  created_at: string
 }
 
 interface DBMessage {
@@ -85,6 +88,7 @@ export function ChatConversation({ chatId }: Props) {
             role: m.role,
             content: m.content,
             status: m.status,
+            created_at: m.created_at,
           })),
         )
       } catch (err) {
@@ -130,11 +134,13 @@ export function ChatConversation({ chatId }: Props) {
       if (!trimmed || isSending) return
 
       const userClientUuid = crypto.randomUUID()
+      const nowIso = new Date().toISOString()
       const userMessage: UIMessage = {
         id: userClientUuid,
         role: "user",
         content: trimmed,
         status: "complete",
+        created_at: nowIso,
       }
       setMessages((prev) => [...prev, userMessage])
       setInput("")
@@ -144,7 +150,13 @@ export function ChatConversation({ chatId }: Props) {
       const assistantPlaceholderId = `pending-${crypto.randomUUID()}`
       setMessages((prev) => [
         ...prev,
-        { id: assistantPlaceholderId, role: "assistant", content: "", status: "streaming" },
+        {
+          id: assistantPlaceholderId,
+          role: "assistant",
+          content: "",
+          status: "streaming",
+          created_at: new Date().toISOString(),
+        },
       ])
 
       try {
@@ -192,8 +204,13 @@ export function ChatConversation({ chatId }: Props) {
               // Clear the progress line and reveal the full text as a
               // typewriter. Await so the reveal finishes before we move on to
               // the next event or close the stream — important for long
-              // replies.
+              // replies. Bump the timestamp to now so it matches the DB row
+              // that just got inserted server-side.
+              const arriveAt = new Date().toISOString()
               setCurrentProgress(null)
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantPlaceholderId ? { ...m, created_at: arriveAt } : m)),
+              )
               await typewriterReveal(assistantPlaceholderId, event.content)
             } else if (event.type === "error" && event.error) {
               const errorContent = `⚠️ ${event.error}`
@@ -346,6 +363,43 @@ function ThreeDotSpinner() {
   return <ThreeDots size="1" colorClass="bg-white" />
 }
 
+// Timestamp formatting for bubble metadata. Shows "Mon D, YYYY · h:mm AM/PM"
+// for today or older — dropping the year when it matches now, so recent
+// messages feel less busy.
+function formatBubbleTimestamp(iso: string): string {
+  try {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return ""
+    const now = new Date()
+    const sameYear = d.getFullYear() === now.getFullYear()
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: sameYear ? undefined : "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).replace(", ", ", ").replace(/(\d),\s(\d)/, "$1 · $2")
+  } catch {
+    return ""
+  }
+}
+
+function BubbleMeta({ iso, align }: { iso: string; align: "left" | "right" }) {
+  const text = formatBubbleTimestamp(iso)
+  if (!text) return null
+  return (
+    <p
+      className={cn(
+        "mt-1 text-[11px] text-white/35",
+        align === "right" ? "text-right" : "text-left pl-0.5",
+      )}
+    >
+      {text}
+    </p>
+  )
+}
+
 function MessageBubble({
   message,
   progress,
@@ -357,10 +411,11 @@ function MessageBubble({
 }) {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end">
         <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-gradient-to-br from-violet-600/90 to-fuchsia-600/90 px-4 py-3 text-sm leading-relaxed text-white shadow-lg shadow-violet-950/40 sm:max-w-[75%]">
           <p className="whitespace-pre-wrap">{message.content}</p>
         </div>
+        <BubbleMeta iso={message.created_at} align="right" />
       </div>
     )
   }
@@ -390,6 +445,9 @@ function MessageBubble({
             <MarkdownContent content={message.content} />
           )}
         </div>
+        {/* Only show the timestamp once the assistant reply is out of the
+            "thinking" state — an in-flight bubble has no meaningful timestamp yet. */}
+        {!showProgressRow && <BubbleMeta iso={message.created_at} align="left" />}
       </div>
     </div>
   )
