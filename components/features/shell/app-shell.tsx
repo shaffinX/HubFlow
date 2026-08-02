@@ -4,19 +4,22 @@ import Link from "next/link"
 import { useRouter, usePathname } from "next/navigation"
 import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 import {
-  Bell,
-  CircleUserRound,
-  History,
-  Loader2,
-  Menu,
-  MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings,
-  SquarePen,
-  Trash2,
-  X,
-} from "lucide-react"
+  IconBell,
+  IconHistoryToggle,
+  IconLayoutSidebar,
+  IconLayoutSidebarFilled,
+  IconLoader,
+  IconMenu,
+  IconMessageCircle,
+  IconMessageCircleFilled,
+  IconOctagonPlus,
+  IconOctagonPlusFilled,
+  IconSettings,
+  IconSettingsFilled,
+  IconTrash,
+  IconUserCircle,
+  IconX,
+} from "@tabler/icons-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -31,7 +34,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-import { BrandLockup, BrandMark, StatusDot } from "./brand"
+import { BrandLockup, BrandMark } from "./brand"
 
 interface Chat {
   id: string
@@ -53,6 +56,22 @@ interface ExpandedSidebarProps {
   onNewChat: () => void
 }
 
+// Chat tab icon — outline MessageCircle in a subtle ring, swaps to the filled
+// tabler variant when this chat is the selected one.
+function ChatIcon({ active }: { active?: boolean }) {
+  const Icon = active ? IconMessageCircleFilled : IconMessageCircle
+  return (
+    <span
+      className={cn(
+        "flex size-6 shrink-0 items-center justify-center rounded-full ring-1 ring-inset transition-colors",
+        active ? "bg-violet-500/25 ring-violet-300/50" : "bg-white/[0.04] ring-white/15",
+      )}
+    >
+      <Icon className={cn("size-3.5", active ? "text-violet-100" : "text-white/70")} />
+    </span>
+  )
+}
+
 function ExpandedSidebar({
   chats,
   selectedChatId,
@@ -66,12 +85,8 @@ function ExpandedSidebar({
 }: ExpandedSidebarProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between px-5 pt-5 pb-3">
-        <BrandLockup height={42} />
-      </div>
-      <div className="flex items-center gap-1.5 px-5 pb-5 text-xs font-medium text-emerald-400">
-        <StatusDot />
-        CRM Agent Active
+      <div className="flex items-center justify-between px-5 pt-6 pb-5">
+        <BrandLockup size="lg" />
       </div>
 
       <div className="px-4">
@@ -79,9 +94,9 @@ function ExpandedSidebar({
         <button
           type="button"
           onClick={onNewChat}
-          className="flex w-full items-center gap-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-950/40 outline-none transition-all hover:brightness-110 focus-visible:ring-2 focus-visible:ring-violet-300/60 active:scale-[0.98]"
+          className="flex h-11 w-full items-center gap-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3.5 text-sm font-semibold text-white shadow-lg shadow-violet-950/40 outline-none transition-all hover:brightness-110 focus-visible:ring-2 focus-visible:ring-violet-300/60 active:scale-[0.98]"
         >
-          <SquarePen className="size-4 shrink-0" />
+          <IconOctagonPlus className="size-5 shrink-0" />
           <span className="truncate">New Chat</span>
         </button>
       </div>
@@ -91,7 +106,7 @@ function ExpandedSidebar({
 
         {isLoading && chats.length === 0 && (
           <div className="flex items-center gap-2 px-3 py-2 text-[13px] text-white/40">
-            <Loader2 className="size-3.5 animate-spin" />
+            <IconLoader className="size-3.5 animate-spin" />
             Loading…
           </div>
         )}
@@ -102,7 +117,7 @@ function ExpandedSidebar({
           <p className="px-3 py-2 text-[12px] text-white/40">No chats yet. Start one above.</p>
         )}
 
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-1">
           {chats.map((chat) => {
             const isActive = chat.id === selectedChatId
             const isDeleting = chat.id === deletingId
@@ -110,7 +125,7 @@ function ExpandedSidebar({
               <div
                 key={chat.id}
                 className={cn(
-                  "group relative flex w-full items-center rounded-lg text-white/70 transition-colors",
+                  "group relative flex h-11 w-full items-center rounded-xl text-white/70 transition-colors",
                   isActive
                     ? "bg-violet-500/15 text-white ring-1 ring-inset ring-violet-400/30"
                     : "hover:bg-white/[0.06] hover:text-white",
@@ -120,11 +135,9 @@ function ExpandedSidebar({
                 <button
                   type="button"
                   onClick={() => onSelectChat(chat.id)}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50"
+                  className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-xl px-3 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50"
                 >
-                  <MessageSquare
-                    className={cn("size-3.5 shrink-0", isActive ? "text-violet-300" : "opacity-60")}
-                  />
+                  <ChatIcon active={isActive} />
                   <span className="truncate">{chat.name}</span>
                 </button>
                 <button
@@ -134,9 +147,9 @@ function ExpandedSidebar({
                     e.stopPropagation()
                     onDeleteChat(chat.id)
                   }}
-                  className="mr-1 flex size-6 shrink-0 items-center justify-center rounded-md text-white/40 opacity-0 outline-none transition-all hover:bg-white/10 hover:text-red-400 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400/40"
+                  className="mr-1.5 flex size-7 shrink-0 items-center justify-center rounded-md text-white/40 opacity-0 outline-none transition-all hover:bg-white/10 hover:text-red-400 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400/40"
                 >
-                  {isDeleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                  {isDeleting ? <IconLoader className="size-4 animate-spin" /> : <IconTrash className="size-4" />}
                 </button>
               </div>
             )
@@ -148,13 +161,17 @@ function ExpandedSidebar({
         <Link
           href="/settings"
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/50",
+            "flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/50",
             isSettingsActive
               ? "bg-violet-500/15 text-white ring-1 ring-inset ring-violet-400/30"
               : "text-white/70 hover:bg-white/[0.06] hover:text-white",
           )}
         >
-          <Settings className={cn("size-5 shrink-0", isSettingsActive && "text-violet-300")} />
+          {isSettingsActive ? (
+            <IconSettingsFilled className="size-6 shrink-0 text-violet-300" />
+          ) : (
+            <IconSettings className="size-6 shrink-0" />
+          )}
           <span>Settings</span>
         </Link>
       </div>
@@ -175,31 +192,34 @@ function CollapsedSidebar({
     <div className="flex h-full min-h-0 flex-col items-center px-2 py-5">
       <BrandMark size={36} />
 
+      {/* Panel is closed — collapsed-state icon is FILLED per spec. */}
       <button
         type="button"
         onClick={onExpand}
         aria-label="Expand sidebar"
-        className="mt-4 flex size-9 items-center justify-center rounded-lg text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
+        className="mt-5 flex size-10 items-center justify-center rounded-lg text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
       >
-        <PanelLeftOpen className="size-4" />
+        <IconLayoutSidebarFilled className="size-5" />
       </button>
 
+      {/* New Chat trigger — filled icon in the collapsed state per spec. */}
       <button
         type="button"
         onClick={onNewChat}
         aria-label="New Chat"
         className="mt-2 flex size-11 items-center justify-center rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-950/40 outline-none transition-all hover:brightness-110 focus-visible:ring-2 focus-visible:ring-violet-300/60 active:scale-[0.98]"
       >
-        <SquarePen className="size-4" />
+        <IconOctagonPlusFilled className="size-5" />
       </button>
 
+      {/* Chat history — dedicated collapsed-view icon per spec. */}
       <button
         type="button"
         onClick={onExpand}
         aria-label="Chat History"
-        className="mt-2 flex size-9 items-center justify-center rounded-lg text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
+        className="mt-2 flex size-10 items-center justify-center rounded-lg text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
       >
-        <History className="size-4" />
+        <IconHistoryToggle className="size-5" />
       </button>
 
       <div className="flex-1" />
@@ -208,27 +228,33 @@ function CollapsedSidebar({
         href="/settings"
         aria-label="Settings"
         className={cn(
-          "flex size-10 items-center justify-center rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/50",
+          "flex size-11 items-center justify-center rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-violet-400/50",
           isSettingsActive
             ? "bg-violet-500/15 text-violet-300 ring-1 ring-inset ring-violet-400/30"
             : "text-white/60 hover:bg-white/10 hover:text-white",
         )}
       >
-        <Settings className="size-5" />
+        {isSettingsActive ? (
+          <IconSettingsFilled className="size-6" />
+        ) : (
+          <IconSettings className="size-6" />
+        )}
       </Link>
     </div>
   )
 }
 
+// The panel is currently OPEN — the toggle offers to CLOSE it. Outline glyph
+// here; the collapsed-state expand button (above) uses the filled variant.
 function CollapseToggle({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label="Collapse sidebar"
-      className="absolute top-4 right-3 z-10 flex size-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
+      className="absolute top-4 right-3 z-10 flex size-9 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
     >
-      <PanelLeftClose className="size-3.5" />
+      <IconLayoutSidebar className="size-5" />
     </button>
   )
 }
@@ -427,7 +453,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           aria-label="Close menu"
           className="absolute top-4 right-3 z-10 flex size-8 items-center justify-center rounded-md text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
         >
-          <X className="size-4" />
+          <IconX className="size-4" />
         </button>
         <ExpandedSidebar {...sidebarProps} />
       </aside>
@@ -442,7 +468,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-label="Open menu"
               className="flex size-9 items-center justify-center rounded-lg text-white/70 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
             >
-              <Menu className="size-5" />
+              <IconMenu className="size-5" />
             </button>
             <BrandMark size={24} />
             <span className="text-sm font-bold text-white">HubFlow</span>
@@ -456,7 +482,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 aria-label="Notifications"
                 className="rounded-full text-white/70 hover:bg-white/10 hover:text-white"
               >
-                <Bell />
+                <IconBell />
               </Button>
               <span className="pointer-events-none absolute top-1.5 right-1.5 size-2 rounded-full bg-fuchsia-500 ring-2 ring-[#07070d]" />
             </div>
@@ -466,7 +492,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-label="Account"
               className="rounded-full text-white/70 hover:bg-white/10 hover:text-white"
             >
-              <CircleUserRound />
+              <IconUserCircle />
             </Button>
           </div>
         </header>
@@ -526,7 +552,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 {isCreating ? (
                   <>
-                    <Loader2 className="animate-spin" />
+                    <IconLoader className="animate-spin" />
                     Creating…
                   </>
                 ) : (

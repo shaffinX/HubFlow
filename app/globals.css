@@ -149,6 +149,23 @@
   animation: hubflow-glow-pulse 9s ease-in-out infinite;
 }
 
+/* Three-dot loader — each dot uses this keyframe and staggers its start via
+   inline animationDelay. Subtle up-bob, no scale change. */
+@keyframes hubflow-dot-bob {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+.animate-hubflow-dot {
+  animation: hubflow-dot-bob 1s ease-in-out infinite;
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

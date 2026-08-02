@@ -1,9 +1,6 @@
 # HubSpot Agent Tools
 
-These are the tools the assistant will call to work with HubSpot: managing tasks, looking up contacts, and sending email. Each tool has:
-
-1. A **plain-TypeScript function** in `lib/hubspot/` — this is what the agent will import and call directly.
-2. A **temporary REST endpoint** under `/api/hubspot/*` — a thin wrapper so you can test each tool with cURL / Postman right now. Once the agent is wired up these endpoints will be deleted; do **not** document them in `api_reference.md`.
+These are the tools the LangGraph agent calls to work with HubSpot (managing tasks, looking up contacts) and to send email (via nodemailer). Each tool is a **plain-TypeScript function** exported from `lib/hubspot/` or `lib/mailer/` — the agent binds them at model level via `bindTools()`. There is no HTTP surface for these — every call happens in-process from the agent runtime.
 
 ## Contents
 
@@ -28,20 +25,15 @@ These are the tools the assistant will call to work with HubSpot: managing tasks
 
 ## Setup
 
-Every tool needs a HubSpot private-app access token. Two ways to provide it:
+Every HubSpot tool needs a private-app access token. The agent resolves it once per turn via `getChatAccessToken(chatId)` (in `lib/agent/credentials.ts`) which:
 
-| Consumer | How the token is provided |
-|---|---|
-| **Agent (final wiring)** | Pass the token directly via `accessToken` on every tool call. |
-| **Test endpoints (now)** | Store the token via `POST /api/credentials`, then reference the returned `id` on every call. |
+1. Reads the chat's `credential_id` from Postgres, if set.
+2. Falls back to the most-recent credential row managed by the Settings page.
+3. Decrypts the token from the `credentials` table (AES-256-GCM) and injects it into the LangGraph `config.configurable.accessToken`.
 
-For test endpoints, `credential_id` can be supplied three ways (precedence in this order):
+Tools pull the token off the runnable config — nothing else does.
 
-1. `x-credential-id` header — cleanest, keeps IDs out of URLs.
-2. `?credential_id=<uuid>` query string — handy for `GET`.
-3. `"credential_id": "<uuid>"` in the JSON body.
-
-The route helper decrypts the stored token per request; the tool functions never touch the DB themselves.
+The `send_email` tool is independent of HubSpot: it uses nodemailer over the SMTP creds you set in `.env` (see `.env.example` for the `SMTP_*` block).
 
 ---
 
@@ -50,7 +42,7 @@ The route helper decrypts the stored token per request; the tool functions never
 - **Module path:** `import { createTask, ... } from "@/lib/hubspot"`.
 - **Base URL:** `https://api.hubapi.com` — set in `lib/hubspot/client.ts`.
 - **Association type ID for tasks → contacts is fixed at `204` with category `HUBSPOT_DEFINED`**, per project spec. If you set `contact_id` on `create_task`, the tool wires up this association automatically — the agent does not need to think about it.
-- **Property naming:** the tool functions accept ergonomic camelCase names (`dueDate`, `ownerId`, …) and translate to HubSpot's `hs_*` properties internally. The REST endpoints accept snake_case in JSON (`due_date`, `owner_id`, …).
+- **Property naming:** the tool functions accept ergonomic camelCase names (`dueDate`, `ownerId`, …) and translate to HubSpot's `hs_*` properties internally. The agent-facing schema exposes snake_case aliases (`due_date`, `owner_id`, …) that Gemini function-calls with.
 - **Dates:** `dueDate`/`due_date` accepts ISO 8601 UTC (`"2026-08-15T09:00:00.000Z"`) or Unix ms as a string (`"1755255600000"`). HubSpot accepts both. `reminder_at` is Unix ms **only** (HubSpot rejects ISO for that field).
 - **Task status values:** `NOT_STARTED` | `IN_PROGRESS` | `WAITING` | `COMPLETED` | `DEFERRED`.
 - **Task priority values:** `LOW` | `MEDIUM` | `HIGH`.
@@ -83,26 +75,6 @@ Creates a task in HubSpot and optionally links it to a contact.
 
 **Returns:** the created HubSpot task object (`{ id, properties, createdAt, updatedAt, archived }`). Keep `id` — that's the task's HubSpot ID.
 
-**Test endpoint:** `POST /api/hubspot/tasks`
-
-Body (snake_case):
-
-```json
-{
-  "credential_id": "uuid",
-  "due_date": "2026-08-15T09:00:00.000Z",
-  "subject": "Follow up with Brian",
-  "body": "Send the proposal",
-  "owner_id": "64492917",
-  "status": "NOT_STARTED",
-  "priority": "HIGH",
-  "type": "CALL",
-  "contact_id": 101
-}
-```
-
-`201` on success.
-
 ---
 
 ## `get_task`
@@ -122,16 +94,6 @@ Retrieves one task with associations.
 | `archived` | boolean | – | Set `true` to fetch a soft-deleted task. |
 
 **Returns:** the task object, including an `associations` map when the linked records exist.
-
-**Test endpoint:** `GET /api/hubspot/tasks/:id`
-
-Query params (optional): `properties=csv`, `associations=csv`, `archived=true`.
-
-Example:
-
-```
-GET /api/hubspot/tasks/17687016786?credential_id=<uuid>&associations=contacts
-```
 
 ---
 
@@ -153,10 +115,6 @@ Lists tasks without any filter. Use `search_tasks` if you need filtering — it'
 | `archived` | boolean | – | |
 
 **Returns:** `{ results: HubSpotTask[], paging?: { next?: { after, link? } } }`.
-
-**Test endpoint:** `GET /api/hubspot/tasks`
-
-Query params: `limit`, `after`, `properties=csv`, `associations=csv`, `archived=true`.
 
 ---
 
@@ -204,32 +162,6 @@ type SearchFilter = {
 
 **Returns:** `{ total, results: HubSpotTask[], paging?: { next?: { after } } }`.
 
-**Test endpoint:** `POST /api/hubspot/tasks/search`
-
-Body:
-
-```json
-{
-  "credential_id": "uuid",
-  "filter_groups": [
-    {
-      "filters": [
-        { "propertyName": "hs_task_status", "operator": "NEQ", "value": "COMPLETED" },
-        { "propertyName": "hs_task_priority", "operator": "EQ", "value": "HIGH" },
-        { "propertyName": "hubspot_owner_id", "operator": "EQ", "value": "64492917" }
-      ]
-    }
-  ],
-  "sorts": [{ "propertyName": "hs_timestamp", "direction": "ASCENDING" }],
-  "limit": 100
-}
-```
-
-**Gotchas:**
-- Search is rate-limited to 5 req/sec per account.
-- Filter values are case-insensitive except enums (case-sensitive) and string `IN`/`NOT_IN` (must be lowercase).
-- Hard ceiling of 10,000 results per query — for full syncs, page by `hs_lastmodifieddate` in windows.
-
 ---
 
 ## `update_task`
@@ -251,18 +183,6 @@ Changing associations is **not** supported via update — use a dedicated associ
 
 **Returns:** the updated task object.
 
-**Test endpoint:** `PATCH /api/hubspot/tasks/:id`
-
-Body:
-
-```json
-{
-  "credential_id": "uuid",
-  "status": "COMPLETED",
-  "subject": "Close deal"
-}
-```
-
 ---
 
 ## `delete_task`
@@ -279,16 +199,6 @@ Soft delete — the task moves to HubSpot's recycling bin (restorable for 30 day
 | `taskId` | string | ✅ |
 
 **Returns:** `{ archived: true, id: string }`.
-
-**Test endpoint:** `DELETE /api/hubspot/tasks/:id`
-
-Credential via header/query only (no body on `DELETE`).
-
-Example:
-
-```
-DELETE /api/hubspot/tasks/17687016786?credential_id=<uuid>
-```
 
 ---
 
@@ -309,10 +219,6 @@ Lists contacts. Use `search_contacts` if you need to look up by email — that's
 | `archived` | boolean | – | |
 
 **Returns:** `{ results: HubSpotContact[], paging? }`.
-
-**Test endpoint:** `GET /api/hubspot/contacts`
-
-Query params: `limit`, `after`, `properties=csv`, `archived=true`.
 
 ---
 
@@ -357,10 +263,6 @@ Domain wildcard:
 ```
 
 **Returns:** `{ total, results: HubSpotContact[], paging? }`.
-
-**Test endpoint:** `POST /api/hubspot/contacts/search` — same body shape as `search_tasks`.
-
-**Gotcha:** phone-number search — don't include the country code; HubSpot normalises to area code + local number only.
 
 ---
 
@@ -412,44 +314,6 @@ Every input value is HTML-escaped before it hits the template, so it's safe to p
 }
 ```
 
-**Test endpoints:**
-
-### `GET /api/hubspot/emails/send` — connection test
-
-Runs `transporter.verify()` against your SMTP config. No email is sent — this only proves the host is reachable and your credentials are accepted. Perfect for smoke-testing env vars in Postman before firing a real send.
-
-Response:
-
-```json
-{
-  "ok": true,
-  "host": "smtp.gmail.com",
-  "port": 587,
-  "secure": false,
-  "message": "SMTP transporter verified — connection and auth accepted."
-}
-```
-
-`500` if any SMTP env var is missing or auth fails.
-
-### `POST /api/hubspot/emails/send` — send
-
-Body:
-
-```json
-{
-  "to": "jane@example.com",
-  "subject": "Welcome to HubFlow",
-  "heading": "You're all set 🎉",
-  "body": "Hi Jane,\n\nYour HubFlow workspace is ready. Head over to the dashboard to connect your HubSpot portal and try out the first automated flow.\n\n— The HubFlow team",
-  "cta_label": "Open dashboard",
-  "cta_url": "https://hubflow.app",
-  "preheader": "Your HubFlow workspace is ready to go."
-}
-```
-
-**No `credential_id` required for this endpoint** — SMTP config comes from env, not the credentials table.
-
 ---
 
 ## Error shape
@@ -465,17 +329,16 @@ Every route returns errors in the same shape:
 }
 ```
 
-HTTP status is passed through from HubSpot (400/401/403/404/429/500…). Always log `correlationId` — it's what HubSpot support asks for.
+HubSpot's HTTP status is preserved on the `HubSpotError` thrown by the tool functions (400/401/403/404/429/500…). Always log `correlationId` — it's what HubSpot support asks for.
 
-Tool functions throw `HubSpotError` (also exported from `@/lib/hubspot`), with `status`, `body`, and `correlationId` fields. The agent should surface those to the user rather than silently retrying — except on `429` and `5xx`, which are retryable with backoff.
+Tool functions throw `HubSpotError` (exported from `@/lib/hubspot`), with `status`, `body`, and `correlationId` fields. The agent's tool runtime catches these and turns them into a `ToolMessage` string the LLM can reason about — no silent retries — except on `429` and `5xx`, which are worth retrying with backoff.
 
 ---
 
 ## Notes for the agent implementer
 
-- **Do not import from `app/api/…`** in the agent. The endpoints are test scaffolding and will be removed. Import from `@/lib/hubspot` and pass `accessToken` directly.
-- **Get the access token from the chat's bound credential.** Every chat has a `credential_id`; resolve it once at the start of a turn with `resolveAccessToken(credentialId)` (exported from `@/lib/hubspot`).
-- **Look up contact IDs before creating tasks.** Given a name or email from the user, call `searchContacts` first, then pass `contactId` into `createTask`. The task→contact association is wired up automatically with type ID `204`.
-- **For "show me my open tasks" queries, use `searchTasks`** with a filter on `hs_task_status NEQ COMPLETED`, sorted by `hs_timestamp ASCENDING`, not `listTasks`.
-- **Audit every write.** After a successful `createTask` / `updateTask` / `deleteTask` / `sendEmail`, call `recordAudit` (from `@/lib/models`) so the write shows up in the chat's audit panel.
+- **Import from `@/lib/hubspot` and `@/lib/mailer`.** All tool functions live under `lib/`; no HTTP endpoints exist for them.
+- **Access token flow.** `getChatAccessToken(chatId)` in `lib/agent/credentials.ts` resolves the token from the chat's bound credential (or the default set in Settings) and the runner injects it into `config.configurable.accessToken`. Tools read it off the runnable config.
+- **Look up contact IDs before creating tasks.** Given a name or email from the user, call `search_contacts` first, then pass `contact_id` into `create_task`. The task→contact association is wired up automatically with type ID `204`.
+- **For "show me my open tasks" queries, use `search_tasks`** with a filter on `hs_task_status NEQ COMPLETED`, sorted by `hs_timestamp ASCENDING`, not `list_tasks`.
 - **Search rate limit is 5 req/s per portal.** If the agent chains contact search → task search, add a small delay or handle the `429`.

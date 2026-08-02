@@ -37,11 +37,29 @@ import { Command, buildApprovalSummary, getAgentGraph } from "./graph"
 // Events emitted to the SSE endpoint. Every event is a self-contained frame the
 // UI can render on arrival.
 export type AgentEvent =
+  | { type: "progress"; label: string }
   | { type: "assistant_message"; content: string }
   | { type: "approval_needed"; tool: string; args: unknown; summary: string }
   | { type: "tool_result"; tool: string; ok: boolean }
   | { type: "error"; error: string }
   | { type: "done" }
+
+// Deterministic, human-readable status blurbs for each tool. Rendered in the
+// chat as the "current step" — no LLM call is needed to produce these.
+const TOOL_PROGRESS_LABELS: Record<string, string> = {
+  list_contacts: "Fetching your contact list…",
+  search_contacts: "Searching contacts…",
+  get_task: "Loading task details…",
+  list_tasks: "Fetching your tasks…",
+  search_tasks: "Searching tasks…",
+  create_task: "Preparing to create the task…",
+  update_task: "Preparing to update the task…",
+  delete_task: "Preparing to remove the task…",
+  send_email: "Preparing the email…",
+}
+function progressForTool(name: string): string {
+  return TOOL_PROGRESS_LABELS[name] ?? `Running ${name}…`
+}
 
 interface RunOptions {
   chatId: string
@@ -134,6 +152,10 @@ export async function* runAgentTurn(opts: RunOptions): AsyncGenerator<AgentEvent
     return
   }
 
+  // Kick things off with a status blurb so the UI shows a step immediately
+  // instead of a bare "Thinking…". This is a hardcoded message — no LLM cost.
+  yield { type: "progress", label: "Analyzing your request…" }
+
   try {
     // stream in "updates" mode: each yield is a { nodeName: nodeReturnValue }
     // dict, and interrupts arrive as { __interrupt__: [interrupt, ...] }.
@@ -141,6 +163,7 @@ export async function* runAgentTurn(opts: RunOptions): AsyncGenerator<AgentEvent
     let approvalEmitted = false
     // Track tool_call_id -> tool_name so we can tell tool_result which tool.
     const pendingCallNames = new Map<string, string>()
+    let toolsExecuted = 0
 
     for await (const update of await graph.stream(
       // Cast because LangGraph typings can't narrow the union input type here.
@@ -180,6 +203,10 @@ export async function* runAgentTurn(opts: RunOptions): AsyncGenerator<AgentEvent
             const calls = toolCallsOf(m)
             for (const c of calls) {
               if (c.id) pendingCallNames.set(c.id, c.name)
+              // Announce the tool we're about to run. Read tools fire this
+              // immediately; write tools fire it too, followed by the
+              // approval_needed frame from the tools node.
+              yield { type: "progress", label: progressForTool(c.name) }
             }
             const content = extractText(m)
             // A tool-call-only chunk has no text; keep looking. When the loop
@@ -194,9 +221,15 @@ export async function* runAgentTurn(opts: RunOptions): AsyncGenerator<AgentEvent
             const toolCallId = (m as { tool_call_id?: string }).tool_call_id
             const toolName = toolCallId ? pendingCallNames.get(toolCallId) : undefined
             if (!toolName) continue
+            toolsExecuted++
             const content = typeof m.content === "string" ? m.content : ""
             const ok = !/^(HubSpot error|Error|Unknown tool|The user did not approve)/.test(content)
             yield { type: "tool_result", tool: toolName, ok }
+          }
+          // After every tools batch the agent will re-run; tell the user what
+          // that step is so the UI doesn't fall back to "Thinking…".
+          if (toolsExecuted > 0) {
+            yield { type: "progress", label: "Composing a response…" }
           }
         }
       }

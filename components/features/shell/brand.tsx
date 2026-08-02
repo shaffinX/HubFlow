@@ -2,34 +2,22 @@ import Image from "next/image"
 
 import { cn } from "@/lib/utils"
 
-// Full HubFlow wordmark. We crop the shared SVG to just its content box so the
-// lockup lines up flush regardless of the parent's alignment.
-const HUBFLOW_LOCKUP_VIEWBOX = 1024
-const HUBFLOW_LOCKUP_CONTENT = { minX: 44.6, minY: 354.2, width: 948.9, height: 315.5 }
-
+// Text-based brand lockup so we can position the green status dot precisely
+// after the trailing "w" of "HubFlow" — impossible with the SVG lockup because
+// the "w" glyph's edge is opaque to the layout.
 export function BrandLockup({
-  height = 32,
+  size = "md",
   className,
 }: {
-  height?: number
+  size?: "sm" | "md" | "lg"
   className?: string
 }) {
-  const scale = height / HUBFLOW_LOCKUP_CONTENT.height
-  const width = Math.round(HUBFLOW_LOCKUP_CONTENT.width * scale)
-  const imgSize = Math.round(HUBFLOW_LOCKUP_VIEWBOX * scale)
-  const left = -Math.round(HUBFLOW_LOCKUP_CONTENT.minX * scale)
-  const top = -Math.round(HUBFLOW_LOCKUP_CONTENT.minY * scale)
-
+  const wordSize =
+    size === "lg" ? "text-3xl" : size === "sm" ? "text-lg" : "text-2xl"
   return (
-    <div className={cn("relative shrink-0 overflow-hidden", className)} style={{ width, height }}>
-      <Image
-        src="/hubflow.svg"
-        alt="HubFlow"
-        width={imgSize}
-        height={imgSize}
-        style={{ position: "absolute", left, top, maxWidth: "none" }}
-        preload
-      />
+    <div className={cn("flex items-baseline gap-1.5", className)}>
+      <span className={cn("font-bold tracking-tight text-white", wordSize)}>HubFlow</span>
+      <StatusDot />
     </div>
   )
 }
@@ -56,9 +44,9 @@ export function BrandMark({ size = 32, className }: { size?: number; className?:
 
 export function StatusDot() {
   return (
-    <span className="relative flex size-1.5 shrink-0">
+    <span className="relative flex size-2 shrink-0 self-center">
       <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-      <span className="relative inline-flex size-1.5 rounded-full bg-emerald-400" />
+      <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
     </span>
   )
 }

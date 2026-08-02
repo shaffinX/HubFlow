@@ -2,14 +2,14 @@
 
 import { useEffect, useState, type FormEvent } from "react"
 import {
-  CheckCircle2,
-  KeyRound,
-  Loader2,
-  Lock,
-  Pencil,
-  ShieldCheck,
-  Trash2,
-} from "lucide-react"
+  IconCircleCheck,
+  IconKey,
+  IconLoader,
+  IconLock,
+  IconPencil,
+  IconShield,
+  IconTrash,
+} from "@tabler/icons-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -196,25 +196,25 @@ export function CredentialsPanel() {
 
           <div className="flex items-start gap-4 border-b border-white/10 px-6 py-5 sm:px-7">
             <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600/30 to-fuchsia-600/20 ring-1 ring-inset ring-violet-400/25">
-              <KeyRound className="size-5 text-violet-200" />
+              <IconKey className="size-5 text-violet-200" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base font-semibold text-white">HubSpot Access Token</h2>
                 {isLoading ? (
                   <StatusPill tone="neutral">
-                    <Loader2 className="size-3 animate-spin" /> Loading
+                    <IconLoader className="size-3 animate-spin" /> Loading
                   </StatusPill>
                 ) : hasCredential ? (
                   <StatusPill tone="success">
-                    <CheckCircle2 className="size-3" /> Connected
+                    <IconCircleCheck className="size-3" /> Connected
                   </StatusPill>
                 ) : (
                   <StatusPill tone="warning">Not configured</StatusPill>
                 )}
                 {savedFlash && (
                   <StatusPill tone="success">
-                    <CheckCircle2 className="size-3" /> Saved
+                    <IconCircleCheck className="size-3" /> Saved
                   </StatusPill>
                 )}
               </div>
@@ -256,7 +256,7 @@ export function CredentialsPanel() {
                     className="h-11 border-white/15 bg-white/5 font-mono text-sm text-white placeholder:text-white/25"
                   />
                   <p className="flex items-center gap-1.5 text-[11px] text-white/50">
-                    <Lock className="size-3" />
+                    <IconLock className="size-3" />
                     Stored encrypted with AES-256-GCM. You won&apos;t see it again
                     after saving.
                   </p>
@@ -282,7 +282,7 @@ export function CredentialsPanel() {
                   >
                     {isSaving ? (
                       <>
-                        <Loader2 className="animate-spin" />
+                        <IconLoader className="animate-spin" />
                         Saving…
                       </>
                     ) : hasCredential ? (
@@ -304,7 +304,7 @@ export function CredentialsPanel() {
                     {MASKED}
                   </div>
                   <p className="flex items-center gap-1.5 text-[11px] text-white/45">
-                    <ShieldCheck className="size-3" />
+                    <IconShield className="size-3" />
                     {credential && (
                       <>Saved {formatSavedAt(credential.created_at)}</>
                     )}
@@ -321,12 +321,12 @@ export function CredentialsPanel() {
                   >
                     {isRemoving ? (
                       <>
-                        <Loader2 className="animate-spin" />
+                        <IconLoader className="animate-spin" />
                         Removing…
                       </>
                     ) : (
                       <>
-                        <Trash2 />
+                        <IconTrash />
                         Remove
                       </>
                     )}
@@ -336,7 +336,7 @@ export function CredentialsPanel() {
                     onClick={beginEdit}
                     className="bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-950/40 hover:brightness-110"
                   >
-                    <Pencil />
+                    <IconPencil />
                     Replace token
                   </Button>
                 </div>
@@ -347,7 +347,7 @@ export function CredentialsPanel() {
 
         {/* Help / trust footnote */}
         <div className="flex items-start gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3 text-[12px] leading-relaxed text-white/50">
-          <ShieldCheck className="size-4 shrink-0 text-emerald-400/80" />
+          <IconShield className="size-4 shrink-0 text-emerald-400/80" />
           <p>
             HubFlow never displays saved tokens — not in the UI, not in API
             responses. To rotate a token, save a new one; the old value is

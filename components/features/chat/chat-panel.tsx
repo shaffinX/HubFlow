@@ -1,6 +1,6 @@
 "use client"
 
-import { Paperclip, Send } from "lucide-react"
+import { IconPaperclip, IconSend } from "@tabler/icons-react"
 
 import { BrandMark } from "@/components/features/shell/brand"
 
@@ -38,7 +38,7 @@ export function ChatPanel() {
             aria-label="Add attachment"
             className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-violet-400/50"
           >
-            <Paperclip className="size-4" />
+            <IconPaperclip className="size-4" />
           </button>
           <input
             type="text"
@@ -51,7 +51,7 @@ export function ChatPanel() {
             aria-label="Send message"
             className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-950/40 outline-none transition-all hover:brightness-110 focus-visible:ring-2 focus-visible:ring-violet-300/60"
           >
-            <Send className="size-4" />
+            <IconSend className="size-4" />
           </button>
         </form>
         <p className="pointer-events-auto mx-auto mt-3 max-w-3xl text-center text-[11px] leading-relaxed text-white/35">
