@@ -30,13 +30,9 @@ function toolCallsOf(m: BaseMessage): Array<{ id?: string; name: string }> {
   return Array.isArray(raw) ? raw : []
 }
 
+import { classifyApprovalWithLLM } from "./approval-gate"
 import { getChatAccessToken } from "./credentials"
-import {
-  Command,
-  buildApprovalSummary,
-  classifyApprovalResponse,
-  getAgentGraph,
-} from "./graph"
+import { Command, buildApprovalSummary, getAgentGraph } from "./graph"
 
 // Events emitted to the SSE endpoint. Every event is a self-contained frame the
 // UI can render on arrival.
@@ -93,11 +89,42 @@ export async function* runAgentTurn(opts: RunOptions): AsyncGenerator<AgentEvent
     const pendingInterrupts = state.tasks.flatMap((task) => task.interrupts ?? [])
     if (pendingInterrupts.length > 0) {
       const interruptValue = pendingInterrupts[0].value as
-        | { tool?: string; args?: unknown }
+        | { tool?: string; args?: unknown; summary?: string }
         | undefined
       interruptedTool = interruptValue?.tool
-      const decision = classifyApprovalResponse(userMessage)
-      inputOrCommand = new Command({ resume: decision })
+
+      // Delegate approve/decline/modify classification to a small LLM. It
+      // sees the pending action, the user's reply, and the last few messages
+      // — so "yes, go ahead" reads as approval and "actually make it high
+      // priority" reads as a modification with concrete guidance for the
+      // main agent instead of a plain rejection.
+      const classification = await classifyApprovalWithLLM({
+        pendingTool: interruptValue?.tool ?? "unknown",
+        pendingArgs: interruptValue?.args ?? {},
+        pendingSummary: interruptValue?.summary ?? "",
+        userMessage,
+        recentContext: (state.values as { messages?: BaseMessage[] } | undefined)?.messages ?? [],
+      })
+
+      // Translate the classifier's decision into the shape the tools node's
+      // interrupt() call expects. Both `decline` and `modify` become
+      // `approved: false` at the graph level — the main agent reads the
+      // feedback and either apologises + asks, or proposes a fresh tool call
+      // with the requested changes.
+      const resumePayload =
+        classification.decision === "approve"
+          ? { approved: true as const }
+          : classification.decision === "modify"
+            ? {
+                approved: false as const,
+                feedback: `The user wants changes before approving. Requested changes: ${classification.changes}. Do NOT retry the previous call as-is — propose a revised tool call that reflects the changes, or ask a targeted clarifying question first.`,
+              }
+            : {
+                approved: false as const,
+                feedback: classification.reason,
+              }
+
+      inputOrCommand = new Command({ resume: resumePayload })
     } else {
       inputOrCommand = { messages: [new HumanMessage(userMessage)] }
     }

@@ -212,31 +212,4 @@ function str(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined
 }
 
-// Very lightweight yes/no detector. We accept a broad set of positive replies
-// because natural language for approval is famously varied. Anything not
-// matching is treated as a rejection, and the user's message is passed to the
-// LLM as feedback so it can react intelligently.
-export function classifyApprovalResponse(text: string): {
-  approved: boolean
-  feedback?: string
-} {
-  const t = text.trim().toLowerCase()
-  const YES = new Set([
-    "y", "yes", "yeah", "yep", "yup", "ya", "yea",
-    "ok", "okay", "k", "kk",
-    "sure", "go", "go ahead", "do it", "confirm", "confirmed",
-    "proceed", "please do", "please", "approve", "approved",
-    "sounds good", "looks good", "lgtm", "affirmative",
-  ])
-  if (YES.has(t)) return { approved: true }
-  const NO = new Set([
-    "n", "no", "nope", "nah", "cancel", "abort", "stop", "reject", "deny",
-    "don't", "dont", "do not",
-  ])
-  if (NO.has(t)) return { approved: false, feedback: text }
-  // Ambiguous — treat as rejection but hand the user's own words to the LLM as
-  // context so the next turn can react (e.g. "actually make it high priority").
-  return { approved: false, feedback: text }
-}
-
 export { Command, isGraphInterrupt }

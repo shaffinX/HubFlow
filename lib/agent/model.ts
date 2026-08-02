@@ -43,3 +43,13 @@ export function getAgentModel(
   const fallback = makeChatModel(cfg.fallback, cfg.temperature, cfg.apiKey).bindTools(tools)
   return primary.withFallbacks([fallback])
 }
+
+// A no-tools, low-temperature model used for utility classifications such as
+// the approval gate. Reused-per-request; not cached so env changes take
+// effect immediately in dev.
+export function getClassifierModel(): Runnable<BaseMessage[], AIMessageChunk> {
+  const cfg = readModelConfig()
+  const primary = makeChatModel(cfg.primary, 0, cfg.apiKey)
+  const fallback = makeChatModel(cfg.fallback, 0, cfg.apiKey)
+  return primary.withFallbacks([fallback])
+}
