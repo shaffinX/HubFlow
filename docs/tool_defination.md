@@ -366,62 +366,89 @@ Domain wildcard:
 
 ## `send_email`
 
-Sends a real templated email via HubSpot's Single-Send transactional email API. Auto-associates to a contact by email and creates one if it doesn't exist.
+Sends a HubFlow-branded HTML email via **nodemailer** over SMTP. Independent of HubSpot — uses your own SMTP provider (Gmail, Outlook 365, Mailtrap, SES, Postmark, anything with SMTP creds).
 
-**Prerequisites (must be set up in HubSpot before this works):**
+**Prerequisites:**
 
-1. Transactional Email add-on purchased + dedicated IP set up.
-2. A published email in HubSpot's email tool with subscription type = **Transactional** and send method = **Through an API**.
-3. The `emailId` (content ID) — from the email details page or the editor URL: `https://app.hubspot.com/email/{PORTAL_ID}/edit/{EMAIL_ID}/settings`.
-4. The private-app token has the `transactional-email` scope.
+1. SMTP credentials from your provider.
+2. The following env vars in `.env` — see `.env.example` for presets:
+   - `SMTP_HOST` — e.g. `smtp.gmail.com`
+   - `SMTP_PORT` — usually `587` (STARTTLS) or `465` (direct TLS)
+   - `SMTP_SECURE` — `true` for 465, `false` for 587/25 (auto-derived when omitted)
+   - `SMTP_USER` — SMTP username / mailbox address
+   - `SMTP_PASS` — SMTP password or app password
+   - `SMTP_FROM` — default From address, `"Display Name <address@domain.com>"`. Falls back to `SMTP_USER`.
 
-**Function:** `sendEmail(input)` in `lib/hubspot/emails.ts`
+**Function:** `sendMail(input)` in `lib/mailer/send.ts`
 
 **Input:**
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `accessToken` | string | ✅ | |
-| `emailId` | number | ✅ | Content ID of the published transactional email. |
-| `to` | string | ✅ | Recipient email. |
-| `from` | string | – | `"Sender Name <sender@yourdomain.com>"`. Domain must be a connected sending domain. |
-| `sendId` | string | – | Idempotency key. HubSpot dedupes retries per account against this. **Set this on any send you might retry.** |
-| `cc` | string[] | – | CC'd contacts are **not tracked** — the email won't appear on their timeline. |
-| `bcc` | string[] | – | Useful for keeping your own copy — HubSpot does not store the sent HTML. |
-| `replyTo` | string[] | – | |
-| `contactProperties` | `Record<string,string>` | – | Written to the recipient's contact record during send. |
-| `customProperties` | `Record<string,string>` | – | Available in the template as `{{ custom.NAME }}`. Not stored. |
+| `to` | string \| string[] | ✅ | Recipient(s). |
+| `subject` | string | ✅ | |
+| `body` | string | ✅ | Plain-text body. Rendered into the HubFlow HTML template — blank lines become paragraphs, single newlines become `<br/>`. HTML in `body` is escaped, not injected. |
+| `heading` | string | – | Big heading line rendered above the body. |
+| `ctaLabel` + `ctaUrl` | string | – | Both required together to render a gradient CTA button under the body. |
+| `preheader` | string | – | Inbox preview text (~120 chars max). Hidden in the rendered email. |
+| `from` | string | – | Override `SMTP_FROM`. Same `"Name <addr>"` format. |
+| `cc` | string \| string[] | – | |
+| `bcc` | string \| string[] | – | |
+| `replyTo` | string | – | |
+
+Every input value is HTML-escaped before it hits the template, so it's safe to pass user-provided text through directly.
 
 **Returns:**
 
 ```json
 {
-  "requestedAt": "2026-08-02T10:00:00.000Z",
-  "status": "PENDING | PROCESSING | CANCELED | COMPLETE",
-  "sendResult": "SENT | QUEUED | INVALID_TO_ADDRESS | ..."
+  "messageId": "<abcd@smtp-relay>",
+  "accepted": ["jane@example.com"],
+  "rejected": [],
+  "response": "250 2.0.0 Ok: queued",
+  "from": "HubFlow <no-reply@example.com>",
+  "to": ["jane@example.com"],
+  "subject": "Welcome to HubFlow"
 }
 ```
 
-**Interpretation of `sendResult`:** see §8a of `hubspot-reference.md` for the full list. `SENT` and `QUEUED` are success; everything else is a delivery failure the agent should surface.
+**Test endpoints:**
 
-**Test endpoint:** `POST /api/hubspot/emails/send`
+### `GET /api/hubspot/emails/send` — connection test
+
+Runs `transporter.verify()` against your SMTP config. No email is sent — this only proves the host is reachable and your credentials are accepted. Perfect for smoke-testing env vars in Postman before firing a real send.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "host": "smtp.gmail.com",
+  "port": 587,
+  "secure": false,
+  "message": "SMTP transporter verified — connection and auth accepted."
+}
+```
+
+`500` if any SMTP env var is missing or auth fails.
+
+### `POST /api/hubspot/emails/send` — send
 
 Body:
 
 ```json
 {
-  "credential_id": "uuid",
-  "email_id": 4126643121,
   "to": "jane@example.com",
-  "from": "Proposals <proposals@example.com>",
-  "send_id": "proposal-8842",
-  "bcc": ["archive@example.com"],
-  "contact_properties": { "last_proposal_sent": "2026-08-02" },
-  "custom_properties": { "proposalUrl": "https://example.com/p/8842" }
+  "subject": "Welcome to HubFlow",
+  "heading": "You're all set 🎉",
+  "body": "Hi Jane,\n\nYour HubFlow workspace is ready. Head over to the dashboard to connect your HubSpot portal and try out the first automated flow.\n\n— The HubFlow team",
+  "cta_label": "Open dashboard",
+  "cta_url": "https://hubflow.app",
+  "preheader": "Your HubFlow workspace is ready to go."
 }
 ```
 
-**Side effect to know:** every send auto-associates to a contact by the `to` address and creates a new contact if none exists. If that's undesirable, we'd need to add the SMTP API path (§8b) — not implemented yet.
+**No `credential_id` required for this endpoint** — SMTP config comes from env, not the credentials table.
 
 ---
 

@@ -1,47 +1,78 @@
 import { NextResponse } from "next/server"
-import { HubSpotError, sendEmail } from "@/lib/hubspot"
-import {
-  getAccessTokenFromRequest,
-  readJsonBody,
-  toErrorResponse,
-} from "@/lib/hubspot/route-helpers"
+import { MailerConfigError, sendMail, verifyMailer } from "@/lib/mailer"
 
 export const runtime = "nodejs"
 
-// POST /api/hubspot/emails/send — HubSpot Single-Send transactional email.
-export async function POST(request: Request) {
+// GET /api/hubspot/emails/send
+// Connection test only — runs nodemailer's transporter.verify() against the
+// configured SMTP host. No email is sent. Handy for smoke-testing SMTP env
+// vars from Postman before firing a real POST.
+export async function GET() {
   try {
-    const body = await readJsonBody(request)
-    const accessToken = await getAccessTokenFromRequest(request, body)
-
-    const emailId = body.email_id
-    if (typeof emailId !== "number") {
-      throw new HubSpotError("email_id is required (number — content ID of a published template)", 400, null)
-    }
-    if (typeof body.to !== "string" || !body.to) {
-      throw new HubSpotError("to is required (recipient address)", 400, null)
-    }
-
-    const response = await sendEmail({
-      accessToken,
-      emailId,
-      to: body.to,
-      from: typeof body.from === "string" ? body.from : undefined,
-      sendId: typeof body.send_id === "string" ? body.send_id : undefined,
-      cc: Array.isArray(body.cc) ? (body.cc as string[]) : undefined,
-      bcc: Array.isArray(body.bcc) ? (body.bcc as string[]) : undefined,
-      replyTo: Array.isArray(body.reply_to) ? (body.reply_to as string[]) : undefined,
-      contactProperties:
-        body.contact_properties && typeof body.contact_properties === "object"
-          ? (body.contact_properties as Record<string, string>)
-          : undefined,
-      customProperties:
-        body.custom_properties && typeof body.custom_properties === "object"
-          ? (body.custom_properties as Record<string, string>)
-          : undefined,
+    const info = await verifyMailer()
+    return NextResponse.json({
+      ok: true,
+      host: info.host,
+      port: info.port,
+      secure: info.secure,
+      message: "SMTP transporter verified — connection and auth accepted.",
     })
-    return NextResponse.json(response)
   } catch (error) {
     return toErrorResponse(error)
   }
+}
+
+// POST /api/hubspot/emails/send
+// Sends an email via nodemailer using the HubFlow-branded HTML template.
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json().catch(() => ({}))) as {
+      to?: string | string[]
+      subject?: string
+      body?: string
+      heading?: string
+      cta_label?: string
+      cta_url?: string
+      preheader?: string
+      from?: string
+      cc?: string | string[]
+      bcc?: string | string[]
+      reply_to?: string
+    }
+
+    if (!body.to || (Array.isArray(body.to) && body.to.length === 0)) {
+      return NextResponse.json({ error: "`to` is required" }, { status: 400 })
+    }
+    if (typeof body.subject !== "string" || !body.subject.trim()) {
+      return NextResponse.json({ error: "`subject` is required" }, { status: 400 })
+    }
+    if (typeof body.body !== "string" || !body.body.trim()) {
+      return NextResponse.json({ error: "`body` is required" }, { status: 400 })
+    }
+
+    const result = await sendMail({
+      to: body.to,
+      subject: body.subject,
+      body: body.body,
+      heading: body.heading,
+      ctaLabel: body.cta_label,
+      ctaUrl: body.cta_url,
+      preheader: body.preheader,
+      from: body.from,
+      cc: body.cc,
+      bcc: body.bcc,
+      replyTo: body.reply_to,
+    })
+    return NextResponse.json(result)
+  } catch (error) {
+    return toErrorResponse(error)
+  }
+}
+
+function toErrorResponse(error: unknown): NextResponse {
+  if (error instanceof MailerConfigError) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  return NextResponse.json({ error: message }, { status: 500 })
 }
