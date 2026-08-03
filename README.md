@@ -84,6 +84,102 @@ Any write is held for your approval — reply **yes**, or say what to change (`a
 
 HubFlow is a chat surface on top of a LangGraph agent that operates HubSpot for you and drafts outbound email. It's aimed at CRM operators who want to keep working in natural language without giving up the confirmation step before anything gets written.
 
+### Architecture at a glance
+
+The full request lifecycle — from a chat message to a HubSpot write — goes through five moving parts: the SSE endpoint, the turn driver (`runAgentTurn`), the LangGraph state machine, the LLM-driven approval gate, and the tool functions themselves. Postgres is the persistence layer for both the app's tables and LangGraph's own checkpoints.
+
+```mermaid
+flowchart TB
+    UI["<b>Next.js chat UI</b><br/>markdown • typewriter • 3-dot progress"]
+
+    UI -- "POST /api/chats/:id/send (SSE)" --> SSE
+
+    SSE["<b>SSE endpoint</b><br/>persists user msg → drives runner<br/>forwards AgentEvent frames"]
+
+    subgraph Runner["<b>runAgentTurn()</b> — turn driver"]
+        direction TB
+        RCheck{"pending interrupt<br/>on this chat?"}
+        RClass["classifyApprovalWithLLM<br/>(classifier prompt + reply)"]
+        RSwitch{"decision"}
+        RClarify["answerClarifyQuestion<br/>inline reply · no graph resume"]
+        RResume["Command({ resume: {...} })"]
+        RFresh["{ messages: [HumanMessage] }"]
+
+        RCheck -- yes --> RClass --> RSwitch
+        RSwitch -- clarify --> RClarify
+        RSwitch -- "approve / decline / modify" --> RResume
+        RCheck -- no --> RFresh
+    end
+
+    SSE --> RCheck
+    RClarify -- "assistant_message frame" --> SSE
+
+    subgraph Graph["<b>LangGraph state machine</b> — thread_id = chat.id"]
+        direction TB
+        AgentN["<b>agent</b> node<br/>buildMainSystemPrompt(ctx)<br/>+ trimmed history (last 10)<br/>→ Gemini primary / fallback"]
+        Cond{"tool_calls on<br/>last AIMessage?"}
+        ToolsN["<b>tools</b> node<br/>read: execute immediately<br/>write: interrupt() first"]
+        AGate["approval gate<br/>graph paused on Postgres"]
+        Final(("END"))
+
+        AgentN --> Cond
+        Cond -- no --> Final
+        Cond -- yes --> ToolsN
+        ToolsN -- read --> AgentN
+        ToolsN -- "write proposal" --> AGate
+        AGate -. "resume with decision" .-> ToolsN
+    end
+
+    RResume --> AgentN
+    RFresh --> AgentN
+    Final -- "final assistant text" --> SSE
+    RClass -. "reads pending action" .- AGate
+
+    subgraph Reads["<b>Read tools</b> — no approval"]
+        direction LR
+        list_contacts
+        search_contacts
+        get_task
+        list_tasks
+        search_tasks
+    end
+
+    subgraph Writes["<b>Write tools</b> — gated"]
+        direction LR
+        create_task
+        update_task
+        delete_task
+        send_email
+    end
+
+    ToolsN --> Reads
+    AGate -- "approved" --> Writes
+
+    HS[/"<b>HubSpot API</b><br/>/crm/v3/*"/]
+    SMTP2[/"<b>SMTP</b><br/>nodemailer + HubFlow HTML"/]
+
+    Reads --> HS
+    create_task --> HS
+    update_task --> HS
+    delete_task --> HS
+    send_email --> SMTP2
+
+    DB[("<b>Supabase Postgres</b><br/>chats · messages · credentials · audit_log<br/>+ LangGraph checkpoints (auto-created)")]
+
+    SSE -. "persist user + assistant" .-> DB
+    Graph -. "checkpoint state + interrupts" .-> DB
+    RCheck -. "getState()" .-> DB
+```
+
+Reading the diagram:
+
+- **Every turn starts at the SSE endpoint.** The user message is written to `messages` before the runner is even invoked, so a mid-turn disconnect never loses input.
+- **`runAgentTurn` is the branch point.** Before touching the graph it asks the checkpointer whether this chat has a pending interrupt. If yes → classify the reply through a small Gemini call. If no → wrap the reply as a fresh `HumanMessage`.
+- **The clarify decision short-circuits the graph.** No `Command({ resume })` gets sent; the interrupt stays paused on Postgres, and the next reply re-enters the classifier against the same proposal.
+- **The other three decisions resume the graph** with `Command({ resume: { approved, feedback?, followUpNote? } })`. The tools node reads that value, executes (or synthesizes a rejection `ToolMessage`), and the agent runs again to compose the final reply.
+- **Reads bypass the gate entirely** — they emit progress events (`Fetching your contact list…`) but never interrupt.
+- **`send_email` is the only tool that doesn't touch HubSpot.** It goes over SMTP via nodemailer with the HubFlow-branded HTML template. The main prompt tells the agent to warn the user this won't appear on the HubSpot timeline.
+
 ### The agent
 
 - Built on **LangGraph 1.x** — a two-node state machine (`agent` ↔ `tools`) with a Postgres checkpointer so every conversation resumes exactly where it stopped, including a paused approval.
@@ -107,13 +203,14 @@ Each tool is a plain function under `lib/hubspot/` and `lib/mailer/` bound to Ge
 
 ### The approval gate
 
-When the model proposes a write, execution pauses and the UI shows exactly what's about to happen ("I'm about to create task 'X' due tomorrow, HIGH priority — reply yes to confirm"). Your reply is classified by a small dedicated Gemini call as **approve / decline / modify**:
+When the model proposes a write, execution pauses via `interrupt()` and the UI shows exactly what's about to happen ("I'm about to create task 'X' due tomorrow, HIGH priority — reply yes to confirm"). Your reply is classified by a small dedicated Gemini call as **approve / decline / modify / clarify**:
 
-- **approve** — natural-language yes (`yes`, `go ahead`, `sounds good`, `👍`, …) resumes the graph and the tool runs.
+- **approve** — natural-language yes (`yes`, `go ahead`, `sounds good`, `👍`, …) resumes the graph and the tool runs. If the reply tacks on an extra request (`yes, and remind me next week`), the `note` is threaded through as feedback so the main agent addresses it after the write completes.
 - **decline** — natural-language no (`cancel`, `no`, `nope`, `stop`, …) resumes with rejection and the reason is passed as feedback.
-- **modify** — anything else that names a change (`actually make it high priority`, `use a different date`) is parsed for the requested change, resumes as rejection, and the change description is fed back to the main agent so it re-proposes the same action with the new arguments — no need to repeat context.
+- **modify** — anything that names a change (`actually make it high priority`, `use a different date`) is parsed for the requested change, resumes as rejection, and the change description is fed back to the main agent so it re-proposes the same action with the new arguments — no need to repeat context.
+- **clarify** — the reply is a question or hesitation (`when is it due again?`, `which contact?`, `hmm`). A tiny answerer LLM produces a 1–3 sentence factual answer grounded in the proposal + recent transcript, and **the graph is NOT resumed** — the interrupt stays pending, so the next reply gets re-classified against the same proposal.
 
-This is why replying to an approval prompt with `"yeah please go ahead"` works, and `"make it high priority"` doesn't kill the pending action — it iterates on it.
+This is why replying with `"yeah please go ahead"` works, `"make it high priority"` doesn't kill the pending action (it iterates on it), and `"when is that due again?"` gets you an answer instead of an accidental decline.
 
 ### The frontend
 

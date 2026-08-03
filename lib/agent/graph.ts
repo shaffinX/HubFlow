@@ -13,7 +13,7 @@ import type { BaseMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
 
 import { getAgentModel } from "./model"
-import { SYSTEM_PROMPT } from "./prompt"
+import { buildMainSystemPrompt, type MainPromptContext } from "./prompt"
 import { AGENT_TOOLS, isWriteTool } from "./tools"
 
 // The agent gets only the tail of the conversation. Keeps prompt cost bounded
@@ -40,6 +40,127 @@ async function getSaver(): Promise<PostgresSaver> {
   return saver
 }
 
+// Builds the per-turn dynamic context the main prompt bakes into its trailing
+// block. Deterministic and cheap: no network calls, just env reads + a walk of
+// the checkpointed message history.
+function buildMainContext(messages: BaseMessage[]): MainPromptContext {
+  const now = new Date()
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const offsetMinutes = -now.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? "+" : "-"
+  const absMin = Math.abs(offsetMinutes)
+  const offHH = String(Math.floor(absMin / 60)).padStart(2, "0")
+  const offMM = String(absMin % 60).padStart(2, "0")
+
+  const nowLocal = now.toLocaleString(undefined, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+  const timezone = `${tz} (UTC${sign}${offHH}:${offMM})`
+  const nowUtc = now.toISOString()
+
+  const emailEnabled = !!(
+    process.env.SMTP_HOST?.trim() &&
+    process.env.SMTP_USER?.trim() &&
+    process.env.SMTP_PASS
+  )
+  const ownerId = process.env.HUBSPOT_OWNER_ID?.trim() || null
+  const portalId = process.env.HUBSPOT_PORTAL_ID?.trim() || null
+
+  const { knownContacts, committed } = extractSessionFacts(messages)
+
+  return { nowLocal, timezone, nowUtc, ownerId, portalId, emailEnabled, knownContacts, committed }
+}
+
+// Walks the message transcript pairing each AIMessage tool_call with its
+// following ToolMessage, so the main prompt can advertise:
+//   • Contacts already resolved this conversation (from search/list results)
+//   • Writes already committed (successful create/update/delete/send_email)
+function extractSessionFacts(messages: BaseMessage[]): {
+  knownContacts: MainPromptContext["knownContacts"]
+  committed: MainPromptContext["committed"]
+} {
+  const knownContacts: MainPromptContext["knownContacts"] = []
+  const committed: MainPromptContext["committed"] = []
+  const seenContact = new Set<string>()
+  const seenWrite = new Set<string>()
+  const WRITE = new Set(["create_task", "update_task", "delete_task", "send_email"])
+
+  const toolMsgById = new Map<string, BaseMessage>()
+  for (const m of messages) {
+    const type = (m as unknown as { _getType?: () => string })._getType?.()
+    if (type !== "tool") continue
+    const id = (m as unknown as { tool_call_id?: string }).tool_call_id
+    if (id) toolMsgById.set(id, m)
+  }
+
+  for (const m of messages) {
+    const type = (m as unknown as { _getType?: () => string })._getType?.()
+    if (type !== "ai") continue
+    const calls =
+      (m as unknown as { tool_calls?: Array<{ id?: string; name: string; args?: unknown }> })
+        .tool_calls ?? []
+    for (const call of calls) {
+      const toolMsg = call.id ? toolMsgById.get(call.id) : undefined
+      if (!toolMsg) continue
+      const content = typeof toolMsg.content === "string" ? toolMsg.content : ""
+
+      if (call.name === "search_contacts" || call.name === "list_contacts") {
+        try {
+          const parsed = JSON.parse(content) as {
+            results?: Array<{ id: string; properties?: Record<string, string | null> }>
+          }
+          for (const r of parsed.results ?? []) {
+            if (seenContact.has(r.id)) continue
+            seenContact.add(r.id)
+            const p = r.properties ?? {}
+            const name =
+              [p.firstname, p.lastname].filter(Boolean).join(" ") || p.email || `id ${r.id}`
+            knownContacts.push({ id: r.id, name: String(name), email: String(p.email ?? "") })
+          }
+        } catch {
+          // ignore — tool returned a non-JSON error string
+        }
+      }
+
+      if (WRITE.has(call.name)) {
+        // Treat a write as committed if the tool response looks structured and
+        // doesn't start with a HubSpot / rejection error string.
+        const looksOk = !/^(HubSpot error|Error|Unknown tool|The user did not approve)/.test(
+          content,
+        )
+        if (!looksOk) continue
+        try {
+          const parsed = JSON.parse(content) as {
+            id?: string
+            messageId?: string
+            archived?: boolean
+            accepted?: string[]
+          }
+          const key = `${call.name}:${parsed.id ?? parsed.messageId ?? content.slice(0, 40)}`
+          if (seenWrite.has(key)) continue
+          seenWrite.add(key)
+          let summary = ""
+          if (call.name === "create_task") summary = `task ${parsed.id ?? "(id?)"} created`
+          else if (call.name === "update_task") summary = `task ${parsed.id ?? "(id?)"} updated`
+          else if (call.name === "delete_task") summary = `task ${parsed.id ?? "(id?)"} archived`
+          else if (call.name === "send_email")
+            summary = `email sent to ${parsed.accepted?.[0] ?? "(recipient?)"}`
+          committed.push({ tool: call.name, summary, at: "earlier this session" })
+        } catch {
+          // Non-JSON response — still record something so the model knows.
+          committed.push({ tool: call.name, summary: content.slice(0, 60), at: "earlier this session" })
+        }
+      }
+    }
+  }
+  return { knownContacts, committed }
+}
+
 // Agent node — decides on a tool call or produces a final answer.
 async function agentNode(
   state: typeof MessagesAnnotation.State,
@@ -57,7 +178,8 @@ async function agentNode(
     includeSystem: false,
     startOn: "human",
   })
-  const messages = [new SystemMessage(SYSTEM_PROMPT), ...tail]
+  const ctx = buildMainContext(state.messages)
+  const messages = [new SystemMessage(buildMainSystemPrompt(ctx)), ...tail]
   const response = await model.invoke(messages, config)
   return { messages: [response] }
 }
